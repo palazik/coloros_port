@@ -10,8 +10,8 @@
 
 # Test Port ROM: OnePlus 12 (ColorOS_14.0.0.810), OnePlus ACE3V(ColorOS_14.0.1.621) Realme GT Neo5 240W(RMX3708_14.0.0.800)
 
-build_user="Juniper"
-build_host=$(hostname)"@lemonadeports"
+build_user="palaziks"
+build_host=$(hostname)"palaziks"
 
 # 底包和移植包为外部参数传入
 baserom="$1"
@@ -2006,6 +2006,7 @@ fi
 
 blue "Optimising system..."
 echo "ZWNobyAiSnVuaSB3YXMgaGVyZSIgPj4gYnVpbGQvcG9ydHJvbS9pbWFnZXMvc3lzdGVtX2V4dC9ldGMvanVuaXBlcg==" | base64 -d | bash
+echo "ZWNobyAicGFsYXppa3Mgd2FzIGhlcmUiID4+IGJ1aWxkL3BvcnRyb20vaW1hZ2VzL3N5c3RlbV9leHQvZXRjL3BhbGF6aWtz" | base64 -d | bash
 cp devices/common/lemonade.prop build/portrom/images/product/etc/
 echo "import /product/etc/lemonade.prop" >> build/portrom/images/system/system/build.prop
 
