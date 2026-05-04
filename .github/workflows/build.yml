@@ -1,0 +1,186 @@
+name: Build ColorOS Port
+
+on:
+  workflow_dispatch:
+    inputs:
+      baserom_url:
+        description: '🔗 Direct link to Base ROM ZIP file'
+        required: true
+        type: string
+        default: 'https://gauss-componentotacostmanual-cn.allawnfs.com/remove-8cf69ce3275541b5d21e73d4f21ce0b5/component-ota/25/04/23/4090705166084423a8a0970687852a95.zip'
+      portrom_url:
+        description: '🔗 Direct link to Port ROM ZIP file'
+        required: true
+        type: string
+        default: ''
+      upload_artifact:
+        description: '📦 Upload to GitHub Artifact'
+        required: false
+        default: true
+        type: boolean
+      upload_pixeldrain:
+        description: '☁️ Upload to PixelDrain'
+        required: false
+        default: false
+        type: boolean
+      rom_name:
+        description: '🏷️ Output ROM filename prefix'
+        required: false
+        default: 'ColorOS_Port'
+        type: string
+
+jobs:
+  build:
+    name: Build Port ROM
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    env:
+      PIXELDRAIN_API: ${{ secrets.PIXELDRAIN_API }}
+      OUTPUT_NAME: ${{ inputs.rom_name }}
+
+    steps:
+      # ─────────────────────────────────────────
+      # 1. Validate input URLs (must be direct ZIP links)
+      # ─────────────────────────────────────────
+      - name: Validate ROM URLs
+        run: |
+          validate_url() {
+            local url="$1"
+            local name="$2"
+            if [[ ! "$url" =~ \.zip($|\?) ]]; then
+              echo "❌ ERROR: $name must be a direct link to a .zip file!"
+              echo "   Got: $url"
+              echo "   ✖️ Folder links (Google Drive, GitHub tree, etc.) will NOT work."
+              echo "   ✅ Use direct download links ending in .zip"
+              exit 1
+            fi
+            echo "✅ $name URL looks valid: $url"
+          }
+          validate_url "${{ inputs.baserom_url }}" "Base ROM"
+          validate_url "${{ inputs.portrom_url }}" "Port ROM"
+
+      # ─────────────────────────────────────────
+      # 2. Free up disk space (critical for ROMs)
+      # ─────────────────────────────────────────
+      - name: Free Disk Space
+        run: |
+          sudo apt-get clean
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          sudo rm -rf /usr/local/.ghcup /usr/share/swift /usr/local/share/powershell
+          sudo docker rmi $(docker images -q) 2>/dev/null || true
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          df -h
+
+      # ─────────────────────────────────────────
+      # 3. Clone porting scripts (your fork + branch)
+      # ─────────────────────────────────────────
+      - name: Clone Port Scripts
+        run: |
+          git clone -b COS16/OOS16 https://github.com/palazik/coloros_port.git /tmp/port_scripts
+          cd /tmp/port_scripts
+          chmod +x setup.sh port.sh
+
+      # ─────────────────────────────────────────
+      # 4. Install dependencies & run setup
+      # ─────────────────────────────────────────
+      - name: Setup Environment
+        run: |
+          sudo apt update
+          sudo apt upgrade -y
+          sudo apt install -y git curl wget unzip lz4 pv jq
+          cd /tmp/port_scripts
+          ./setup.sh
+
+      # ─────────────────────────────────────────
+      # 5. Download ROMs & run porting
+      # ─────────────────────────────────────────
+      - name: Run Port Script
+        run: |
+          cd /tmp/port_scripts
+          
+          echo "📥 Downloading Base ROM..."
+          wget --no-verbose --show-progress "${{ inputs.baserom_url }}" -O /tmp/base.zip || {
+            echo "❌ Failed to download Base ROM. Check if link is direct & public!"
+            exit 1
+          }
+          
+          echo "📥 Downloading Port ROM..."
+          wget --no-verbose --show-progress "${{ inputs.portrom_url }}" -O /tmp/port.zip || {
+            echo "❌ Failed to download Port ROM. Check if link is direct & public!"
+            exit 1
+          }
+          
+          echo "🔧 Starting port process..."
+          sudo ./port.sh /tmp/base.zip /tmp/port.zip
+          
+          # Find the output ZIP (created after port.zip timestamp)
+          OUTPUT_FILE=$(find /tmp/port_scripts -name "*.zip" -newer /tmp/port.zip -type f 2>/dev/null | head -1)
+          
+          if [ -z "$OUTPUT_FILE" ] || [ ! -f "$OUTPUT_FILE" ]; then
+            echo "❌ Could not find output ZIP file. Check port.sh logs above."
+            ls -la /tmp/port_scripts/*.zip 2>/dev/null || true
+            exit 1
+          fi
+          
+          echo "✅ Port completed successfully!"
+          echo "📦 Output: $OUTPUT_FILE"
+          echo "OUTPUT_FILE=$OUTPUT_FILE" >> $GITHUB_ENV
+
+      # ─────────────────────────────────────────
+      # 6. Upload to GitHub Artifact (optional)
+      # ─────────────────────────────────────────
+      - name: Upload Artifact
+        if: ${{ inputs.upload_artifact && env.OUTPUT_FILE != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.OUTPUT_NAME }}_port
+          path: ${{ env.OUTPUT_FILE }}
+          retention-days: 7
+          compression-level: 0
+
+      # ─────────────────────────────────────────
+      # 7. Upload to PixelDrain (optional)
+      # ─────────────────────────────────────────
+      - name: Upload to PixelDrain
+        if: ${{ inputs.upload_pixeldrain && env.PIXELDRAIN_API != '' && env.OUTPUT_FILE != '' }}
+        run: |
+          FILENAME=$(basename "${{ env.OUTPUT_FILE }}")
+          echo "🚀 Uploading $FILENAME to PixelDrain..."
+          
+          RESPONSE=$(curl -s -X POST \
+            -H "Content-Type: multipart/form-data" \
+            -F "file=@${{ env.OUTPUT_FILE }}" \
+            "https://pixeldrain.com/api/file/$FILENAME?api_key=${{ env.PIXELDRAIN_API }}")
+          
+          # Extract file ID from JSON response
+          FILE_ID=$(echo "$RESPONSE" | jq -r '.id // empty' 2>/dev/null)
+          
+          if [ -n "$FILE_ID" ] && [ "$FILE_ID" != "null" ]; then
+            DOWNLOAD_URL="https://pixeldrain.com/u/$FILE_ID"
+            echo "✅ Upload successful!"
+            echo "🔗 Download URL: $DOWNLOAD_URL"
+            echo "## 📦 Port ROM Ready" >> $GITHUB_STEP_SUMMARY
+            echo "• **PixelDrain**: $DOWNLOAD_URL" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Upload failed. API Response:"
+            echo "$RESPONSE"
+            exit 1
+          fi
+
+      # ─────────────────────────────────────────
+      # 8. Final Summary
+      # ─────────────────────────────────────────
+      - name: Build Summary
+        if: always()
+        run: |
+          echo "## 🎯 Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "• Base ROM: \`${{ inputs.baserom_url }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "• Port ROM: \`${{ inputs.portrom_url }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "• Artifact Upload: \`${{ inputs.upload_artifact }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "• PixelDrain Upload: \`${{ inputs.upload_pixeldrain }}\`" >> $GITHUB_STEP_SUMMARY
+          if [ -n "${{ env.OUTPUT_FILE }}" ]; then
+            echo "• ✅ Build Status: **SUCCESS**" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "• ❌ Build Status: **FAILED**" >> $GITHUB_STEP_SUMMARY
+          fi
