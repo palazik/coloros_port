@@ -41,27 +41,7 @@ jobs:
 
     steps:
       # ─────────────────────────────────────────
-      # 1. Validate input URLs (must be direct ZIP links)
-      # ─────────────────────────────────────────
-      - name: Validate ROM URLs
-        run: |
-          validate_url() {
-            local url="$1"
-            local name="$2"
-            if [[ ! "$url" =~ \.zip($|\?) ]]; then
-              echo "❌ ERROR: $name must be a direct link to a .zip file!"
-              echo "   Got: $url"
-              echo "   ✖️ Folder links (Google Drive, GitHub tree, etc.) will NOT work."
-              echo "   ✅ Use direct download links ending in .zip"
-              exit 1
-            fi
-            echo "✅ $name URL looks valid: $url"
-          }
-          validate_url "${{ inputs.baserom_url }}" "Base ROM"
-          validate_url "${{ inputs.portrom_url }}" "Port ROM"
-
-      # ─────────────────────────────────────────
-      # 2. Free up disk space (critical for ROMs)
+      # 1. Free up disk space (critical for ROMs)
       # ─────────────────────────────────────────
       - name: Free Disk Space
         run: |
@@ -73,7 +53,7 @@ jobs:
           df -h
 
       # ─────────────────────────────────────────
-      # 3. Clone porting scripts (your fork + branch)
+      # 2. Clone porting scripts (your fork + branch)
       # ─────────────────────────────────────────
       - name: Clone Port Scripts
         run: |
@@ -82,7 +62,7 @@ jobs:
           chmod +x setup.sh port.sh
 
       # ─────────────────────────────────────────
-      # 4. Install dependencies & run setup
+      # 3. Install dependencies & run setup
       # ─────────────────────────────────────────
       - name: Setup Environment
         run: |
@@ -93,7 +73,7 @@ jobs:
           ./setup.sh
 
       # ─────────────────────────────────────────
-      # 5. Download ROMs & run porting
+      # 4. Download ROMs & run porting
       # ─────────────────────────────────────────
       - name: Run Port Script
         run: |
@@ -128,7 +108,7 @@ jobs:
           echo "OUTPUT_FILE=$OUTPUT_FILE" >> $GITHUB_ENV
 
       # ─────────────────────────────────────────
-      # 6. Upload to GitHub Artifact (optional)
+      # 5. Upload to GitHub Artifact (optional)
       # ─────────────────────────────────────────
       - name: Upload Artifact
         if: ${{ inputs.upload_artifact && env.OUTPUT_FILE != '' }}
@@ -140,7 +120,7 @@ jobs:
           compression-level: 0
 
       # ─────────────────────────────────────────
-      # 7. Upload to PixelDrain (optional)
+      # 6. Upload to PixelDrain (optional)
       # ─────────────────────────────────────────
       - name: Upload to PixelDrain
         if: ${{ inputs.upload_pixeldrain && env.PIXELDRAIN_API != '' && env.OUTPUT_FILE != '' }}
@@ -169,7 +149,7 @@ jobs:
           fi
 
       # ─────────────────────────────────────────
-      # 8. Final Summary
+      # 7. Final Summary
       # ─────────────────────────────────────────
       - name: Build Summary
         if: always()
